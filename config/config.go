@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/screego/server/config/ipdns"
 	"github.com/screego/server/config/mode"
+	"github.com/screego/server/turn/egress"
 )
 
 var (
@@ -64,8 +64,16 @@ type Config struct {
 	TurnIPProvider ipdns.Provider    `ignored:"true"`
 	TurnPort       string            `ignored:"true"`
 
-	TurnDenyPeers       []string     `default:"0.0.0.0/8,127.0.0.1/8,::/128,::1/128,fe80::/10" split_words:"true"`
-	TurnDenyPeersParsed []*net.IPNet `ignored:"true"`
+	TurnDenyPeers []string `default:"0.0.0.0/8,127.0.0.1/8,::/128,::1/128,fe80::/10" split_words:"true"`
+
+	// TurnEgressPolicy selects the dynamic default policy for TURN peer
+	// connections: public (global unicast only), private (additionally
+	// RFC1918/ULA/CGNAT) or allow-all (legacy deny-list-only behavior).
+	TurnEgressPolicy string `default:"public" split_words:"true"`
+	// TurnAllowPeers exempts CIDRs from the egress policy defaults.
+	TurnAllowPeers []string `split_words:"true"`
+
+	TurnPeerPolicy *egress.Policy `ignored:"true"`
 
 	CloseRoomWhenOwnerLeaves bool `default:"true" split_words:"true"`
 }
@@ -222,21 +230,19 @@ func Get() (Config, []FutureLog) {
 	}
 	logs = append(logs, logDeprecated()...)
 
-	for _, cidrString := range config.TurnDenyPeers {
-		_, cidr, err := net.ParseCIDR(cidrString)
-		if err != nil {
-			logs = append(logs, FutureLog{
-				Level: zerolog.FatalLevel,
-				Msg:   fmt.Sprintf("Invalid SCREEGO_TURN_DENY_PEERS %q: %s", cidrString, err),
-			})
-		} else {
-			config.TurnDenyPeersParsed = append(config.TurnDenyPeersParsed, cidr)
+	peerPolicy, warnings, err := egress.New(config.TurnEgressPolicy, config.TurnDenyPeers, config.TurnAllowPeers)
+	if err != nil {
+		logs = append(logs, futureFatal(err.Error()))
+	} else {
+		config.TurnPeerPolicy = peerPolicy
+		for _, warning := range warnings {
+			logs = append(logs, FutureLog{Level: zerolog.WarnLevel, Msg: warning})
 		}
+		logs = append(logs, FutureLog{
+			Level: zerolog.InfoLevel,
+			Msg:   fmt.Sprintf("TURN peer egress policy enabled: %s", peerPolicy.Description()),
+		})
 	}
-	logs = append(logs, FutureLog{
-		Level: zerolog.InfoLevel,
-		Msg:   fmt.Sprintf("Deny turn peers within %q", config.TurnDenyPeersParsed),
-	})
 
 	return config, logs
 }

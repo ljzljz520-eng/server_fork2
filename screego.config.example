@@ -60,15 +60,46 @@ SCREEGO_TURN_EXTERNAL_PORT=3478
 # Authentication secret for the external TURN server.
 SCREEGO_TURN_EXTERNAL_SECRET=
 
+# Dynamic egress policy for TURN relay peers.
+#
+# A static deny list cannot fully prevent SSRF through TURN: cloud metadata
+# endpoints (169.254.169.254, 100.100.100.200, fd00:ec2::254, ...), private
+# networks and disguised addresses (IPv4-mapped ::ffff:127.0.0.1, 6to4,
+# Teredo, NAT64 prefixes) would otherwise be reachable. The egress policy
+# evaluates every requested peer address dynamically and default-denies all
+# non-public destinations.
+#
+# Possible values:
+#   public    (default) only relay to global unicast addresses; loopback,
+#              link-local, metadata, private (RFC1918/ULA/CGNAT), multicast,
+#              reserved and tunneled addresses are blocked
+#   private    additionally allow relay to private LAN ranges; loopback,
+#              link-local, metadata and other dangerous ranges stay blocked
+#              (use this when clients reach TURN over a private network)
+#   allow-all  legacy behavior, only SCREEGO_TURN_DENY_PEERS is enforced;
+#              unsafe, do not use on an internet-facing server
+SCREEGO_TURN_EGRESS_POLICY=public
+
 # Deny/ban peers within specific CIDRs to prevent TURN server users from
 # accessing machines reachable by the TURN server but not from the internet,
 # useful when the server is behind a NAT.
+#
+# Entries are enforced in every egress mode and take precedence over
+# SCREEGO_TURN_ALLOW_PEERS.
 #
 # Disallow internal ip addresses: https://en.wikipedia.org/wiki/Reserved_IP_addresses
 # SCREEGO_TURN_DENY_PEERS=0.0.0.0/8,10.0.0.0/8,100.64.0.0/10,127.0.0.1/8,169.254.0.0/16,172.16.0.0/12,192.0.0.0/24,192.0.2.0/24,192.88.99.0/24,192.168.0.0/16,198.18.0.0/15,198.51.100.0/24,203.0.113.0/24,224.0.0.0/4,239.0.0.0/8,255.255.255.255/32,::/128,::1/128,64:ff9b:1::/48,100::/64,2001::/32,2002::/16,fc00::/7,fe80::/10
 #
 # By default denies local addresses.
 SCREEGO_TURN_DENY_PEERS=0.0.0.0/8,127.0.0.1/8,::/128,::1/128,fe80::/10
+
+# Explicitly allow peers within specific CIDRs, exempting them from the
+# egress policy defaults (but not from SCREEGO_TURN_DENY_PEERS).
+# Example: permit a corporate LAN while keeping policy mode "public":
+#   SCREEGO_TURN_ALLOW_PEERS=10.0.0.0/8,2a00:1450:4001::/48
+# Overlaps with loopback, link-local or metadata ranges log a warning as
+# they can re-enable SSRF through TURN.
+SCREEGO_TURN_ALLOW_PEERS=
 
 # If reverse proxy headers should be trusted.
 # Screego uses ip whitelisting for authentication

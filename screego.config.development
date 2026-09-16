@@ -3,3 +3,6 @@ SCREEGO_LOG_LEVEL=debug
 SCREEGO_CORS_ALLOWED_ORIGINS=http://localhost:3000
 SCREEGO_USERS_FILE=./users
 SCREEGO_TURN_DENY_PEERS=
+# Clients reach the dev TURN server over LAN addresses; still block
+# loopback/link-local/metadata destinations.
+SCREEGO_TURN_EGRESS_POLICY=private

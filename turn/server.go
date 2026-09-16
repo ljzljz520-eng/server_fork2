@@ -98,13 +98,21 @@ func newInternalServer(conf config.Config) (Server, error) {
 		IPProvider:            conf.TurnIPProvider,
 	}
 
+	// Every CreatePermission/ChannelBind request is evaluated dynamically
+	// against the egress policy. The policy canonicalizes the peer address
+	// (e.g. unwrapping ::ffff:169.254.169.254), classifies it and enforces
+	// the configured default mode plus explicit deny/allow CIDRs.
 	var permissions turn.PermissionHandler = func(clientAddr net.Addr, peerIP net.IP) bool {
-		for _, cidr := range conf.TurnDenyPeersParsed {
-			if cidr.Contains(peerIP) {
-				return false
-			}
+		decision := conf.TurnPeerPolicy.Evaluate(peerIP)
+		if !decision.Allowed {
+			log.Warn().
+				Str("client", clientAddr.String()).
+				Str("peer", peerIP.String()).
+				Str("canonical", decision.Addr.String()).
+				Str("reason", decision.Reason).
+				Msg("Blocked TURN peer via egress policy")
+			return false
 		}
-
 		return true
 	}
 
